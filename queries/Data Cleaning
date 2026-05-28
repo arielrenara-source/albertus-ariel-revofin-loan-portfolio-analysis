@@ -1,0 +1,13 @@
+-- Verifikasi hasil cleaning customer_id (loan table)
+SELECT
+  customer_id                                                             AS customer_id_raw,
+  array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '')    AS customer_id_clean
+FROM `nextproject-001.FIP.loan`
+LIMIT 5;
+
+-- Verifikasi hasil cleaning customer_id (customer table)
+SELECT
+  customer_id                                                             AS customer_id_raw,
+  array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '')    AS customer_id_clean
+FROM `nextproject-001.FIP.customer`
+LIMIT 5;
