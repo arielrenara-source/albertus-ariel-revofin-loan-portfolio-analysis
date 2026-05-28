@@ -1,0 +1,28 @@
+WITH cleaned_loan AS (
+  SELECT
+    array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '') AS customer_id_clean,
+    loan_status,
+    funded_amount,
+    CAST(issue_year AS INT64) AS cohort_year
+  FROM `nextproject-001.FIP.loan`
+),
+portfolio AS (
+  SELECT * FROM cleaned_loan
+  WHERE loan_status IN (
+    'Current', 'In Grace Period',
+    'Late (16-30 days)', 'Late (31-120 days)', 'Default'
+  )
+)
+SELECT
+  cohort_year,
+  COUNT(*)                                                                                            AS loan_count,
+  COUNT(DISTINCT customer_id_clean)                                                                   AS num_customers,
+  ROUND(SUM(funded_amount), 2)                                                                        AS os,
+  ROUND(SUM(CASE WHEN loan_status != 'Default' THEN funded_amount ELSE 0 END), 2)                    AS enr,
+  ROUND(
+    1 - SUM(CASE WHEN loan_status IN ('Late (31-120 days)','Default') THEN funded_amount ELSE 0 END)
+      / NULLIF(SUM(funded_amount), 0)
+  , 4)                                                                                                AS tkb30
+FROM portfolio
+GROUP BY cohort_year
+ORDER BY cohort_year;
