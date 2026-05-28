@@ -1,0 +1,182 @@
+-- Lower Home Ownership
+WITH cleaned_loan AS (
+  SELECT
+    array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '') AS customer_id_clean,
+    CAST(issue_year AS INT64) AS cohort_year
+  FROM `nextproject-001.FIP.loan`
+  WHERE loan_status IN ('Current','In Grace Period','Late (16-30 days)','Late (31-120 days)','Default')
+),
+cleaned_customer AS (
+  SELECT
+    array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '') AS customer_id_clean,
+    NULLIF(home_ownership, 'ANY') AS home_ownership
+  FROM `nextproject-001.FIP.customer`
+),
+joined AS (
+  SELECT
+    CASE WHEN l.cohort_year = 2012 THEN 'Anomaly (2012)' ELSE 'Other Cohorts' END AS cohort_group,
+    c.home_ownership
+  FROM cleaned_loan l
+  LEFT JOIN cleaned_customer c ON l.customer_id_clean = c.customer_id_clean
+)
+SELECT
+  cohort_group,
+  home_ownership,
+  COUNT(*) AS loan_count,
+  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY cohort_group), 2) AS pct
+FROM joined
+WHERE home_ownership IS NOT NULL
+GROUP BY cohort_group, home_ownership
+ORDER BY cohort_group, pct DESC;
+
+--Average Annual Income
+WITH cleaned_loan AS (
+  SELECT
+    array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '') AS customer_id_clean,
+    CAST(issue_year AS INT64) AS cohort_year
+  FROM `nextproject-001.FIP.loan`
+  WHERE loan_status IN ('Current','In Grace Period','Late (16-30 days)','Late (31-120 days)','Default')
+),
+cleaned_customer AS (
+  SELECT
+    array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '') AS customer_id_clean,
+    annual_inc
+  FROM `nextproject-001.FIP.customer`
+),
+joined AS (
+  SELECT
+    CASE WHEN l.cohort_year = 2012 THEN 'Anomaly (2012)' ELSE 'Other Cohorts' END AS cohort_group,
+    c.annual_inc
+  FROM cleaned_loan l
+  LEFT JOIN cleaned_customer c ON l.customer_id_clean = c.customer_id_clean
+)
+SELECT
+  cohort_group,
+  ROUND(AVG(annual_inc), 2)                              AS avg_annual_income,
+  ROUND(APPROX_QUANTILES(annual_inc, 2)[OFFSET(1)], 2)   AS median_annual_income,
+  COUNT(*)                                                AS loan_count
+FROM joined
+WHERE annual_inc IS NOT NULL
+GROUP BY cohort_group
+ORDER BY cohort_group;
+
+--Average Employment Length
+WITH cleaned_loan AS (
+  SELECT
+    array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '') AS customer_id_clean,
+    CAST(issue_year AS INT64) AS cohort_year
+  FROM `nextproject-001.FIP.loan`
+  WHERE loan_status IN ('Current','In Grace Period','Late (16-30 days)','Late (31-120 days)','Default')
+),
+cleaned_customer AS (
+  SELECT
+    array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '') AS customer_id_clean,
+    emp_length,
+    CASE
+      WHEN emp_length = '< 1 year'   THEN 0.5
+      WHEN emp_length = '1 year'     THEN 1
+      WHEN emp_length = '2 years'    THEN 2
+      WHEN emp_length = '3 years'    THEN 3
+      WHEN emp_length = '4 years'    THEN 4
+      WHEN emp_length = '5 years'    THEN 5
+      WHEN emp_length = '6 years'    THEN 6
+      WHEN emp_length = '7 years'    THEN 7
+      WHEN emp_length = '8 years'    THEN 8
+      WHEN emp_length = '9 years'    THEN 9
+      WHEN emp_length = '10+ years'  THEN 10
+      ELSE NULL
+    END AS emp_years
+  FROM `nextproject-001.FIP.customer`
+),
+joined AS (
+  SELECT
+    CASE WHEN l.cohort_year = 2012 THEN 'Anomaly (2012)' ELSE 'Other Cohorts' END AS cohort_group,
+    c.emp_years
+  FROM cleaned_loan l
+  LEFT JOIN cleaned_customer c ON l.customer_id_clean = c.customer_id_clean
+)
+SELECT
+  cohort_group,
+  ROUND(AVG(emp_years), 2)  AS avg_emp_years,
+  COUNT(*)                   AS loan_count
+FROM joined
+WHERE emp_years IS NOT NULL
+GROUP BY cohort_group
+ORDER BY cohort_group;
+
+--State and Region Concentration
+WITH portfolio AS (
+  SELECT
+    array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '') AS customer_id_clean,
+    CAST(issue_year AS INT64) AS cohort_year,
+    state
+  FROM `nextproject-001.FIP.loan`
+  WHERE loan_status IN ('Current','In Grace Period','Late (16-30 days)','Late (31-120 days)','Default')
+),
+labeled AS (
+  SELECT
+    CASE WHEN cohort_year = 2012 THEN 'Anomaly (2012)' ELSE 'Other Cohorts' END AS cohort_group,
+    state
+  FROM portfolio
+)
+SELECT
+  l.cohort_group,
+  sr.region,
+  sr.subregion,
+  l.state,
+  COUNT(*)                                                                            AS loan_count,
+  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY l.cohort_group), 2)     AS pct
+FROM labeled l
+LEFT JOIN `nextproject-001.FIP.state_regions` sr ON l.state = sr.state
+GROUP BY l.cohort_group, sr.region, sr.subregion, l.state
+ORDER BY l.cohort_group, loan_count DESC
+LIMIT 40;
+
+--Loan Purpose Distribution
+WITH portfolio AS (
+  SELECT
+    CAST(issue_year AS INT64) AS cohort_year,
+    purpose
+  FROM `nextproject-001.FIP.loan`
+  WHERE loan_status IN ('Current','In Grace Period','Late (16-30 days)','Late (31-120 days)','Default')
+),
+labeled AS (
+  SELECT
+    CASE WHEN cohort_year = 2012 THEN 'Anomaly (2012)' ELSE 'Other Cohorts' END AS cohort_group,
+    purpose
+  FROM portfolio
+)
+SELECT
+  cohort_group,
+  purpose,
+  COUNT(*) AS loan_count,
+  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY cohort_group), 2) AS pct
+FROM labeled
+WHERE purpose IS NOT NULL
+GROUP BY cohort_group, purpose
+ORDER BY cohort_group, pct DESC;
+
+Average Interest Rate
+WITH portfolio AS (
+  SELECT
+    CAST(issue_year AS INT64)  AS cohort_year,
+    ROUND(int_rate * 100, 2)   AS int_rate_pct
+  FROM `nextproject-001.FIP.loan`
+  WHERE loan_status IN ('Current','In Grace Period','Late (16-30 days)','Late (31-120 days)','Default')
+),
+labeled AS (
+  SELECT
+    CASE WHEN cohort_year = 2012 THEN 'Anomaly (2012)' ELSE 'Other Cohorts' END AS cohort_group,
+    int_rate_pct
+  FROM portfolio
+)
+SELECT
+  cohort_group,
+  ROUND(AVG(int_rate_pct), 4)                            AS avg_int_rate_pct,
+  ROUND(APPROX_QUANTILES(int_rate_pct, 2)[OFFSET(1)], 4) AS median_int_rate_pct,
+  ROUND(MIN(int_rate_pct), 4)                            AS min_int_rate_pct,
+  ROUND(MAX(int_rate_pct), 4)                            AS max_int_rate_pct,
+  COUNT(*)                                                AS loan_count
+FROM labeled
+GROUP BY cohort_group
+ORDER BY cohort_group;
