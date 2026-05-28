@@ -1,0 +1,19 @@
+WITH cleaned_loan AS (
+  SELECT
+    array_to_string(regexp_extract_all(customer_id, '[a-zA-Z0-9]'), '') AS customer_id_clean,
+    loan_status,
+    funded_amount
+  FROM `nextproject-001.FIP.loan`
+),
+portfolio AS (
+  SELECT * FROM cleaned_loan
+  WHERE loan_status IN (
+    'Current', 'In Grace Period',
+    'Late (16-30 days)', 'Late (31-120 days)', 'Default'
+  )
+)
+SELECT
+  COUNT(DISTINCT customer_id_clean)                                                   AS num_customers,
+  SUM(funded_amount)                                                                  AS total_os,
+  SUM(CASE WHEN loan_status != 'Default' THEN funded_amount ELSE 0 END)              AS total_enr
+FROM portfolio;
