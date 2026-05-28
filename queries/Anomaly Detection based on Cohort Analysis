@@ -1,0 +1,39 @@
+WITH cleaned_loan AS (
+  SELECT
+    loan_status,
+    funded_amount,
+    CAST(issue_year AS INT64) AS cohort_year
+  FROM `nextproject-001.FIP.loan`
+),
+portfolio AS (
+  SELECT * FROM cleaned_loan
+  WHERE loan_status IN (
+    'Current', 'In Grace Period',
+    'Late (16-30 days)', 'Late (31-120 days)', 'Default'
+  )
+),
+cohort_metrics AS (
+  SELECT
+    cohort_year,
+    ROUND(SUM(funded_amount), 2) AS os,
+    ROUND(
+      1 - SUM(CASE WHEN loan_status IN ('Late (31-120 days)','Default') THEN funded_amount ELSE 0 END)
+        / NULLIF(SUM(funded_amount), 0)
+    , 4) AS tkb30
+  FROM portfolio
+  GROUP BY cohort_year
+)
+SELECT
+  cohort_year,
+  os,
+  tkb30,
+  ROUND(AVG(tkb30) OVER (), 4)               AS avg_tkb30,
+  ROUND(tkb30 - AVG(tkb30) OVER (), 4)       AS diff_from_avg,
+  CASE
+    WHEN tkb30 = MIN(tkb30) OVER () THEN '🔴 LOWEST TKB30 — Anomaly'
+    WHEN tkb30 = MAX(tkb30) OVER () THEN '🟢 HIGHEST TKB30'
+    WHEN tkb30 < AVG(tkb30) OVER () THEN '🟡 Below Average'
+    ELSE '✅ Above Average'
+  END AS flag
+FROM cohort_metrics
+ORDER BY tkb30 ASC;
